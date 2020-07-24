@@ -131,7 +131,6 @@ include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}/include/)
 include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/include/)
 include_directories(SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sol2/)
 include_directories(SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/third_party/variant/include)
-
 set(BOOST_COMPONENTS date_time chrono filesystem iostreams program_options regex system thread unit_test_framework)
 
 configure_file(
@@ -183,11 +182,12 @@ if (ENABLE_SWIG_JNI_BINDINGS OR ENABLE_SWIG_PYTHON_BINDINGS)
     include_directories(SYSTEM "${JAVA_INCLUDE_PATH2}")
   endif()
   if (ENABLE_SWIG_PYTHON_BINDINGS)
-    find_package(PythonInterp REQUIRED)
-    find_package(PythonLibs REQUIRED)
+    find_package(PythonInterp 3 REQUIRED)
+    find_package(PythonLibs 3 REQUIRED)
     include_directories(SYSTEM "${PYTHON_INCLUDE_PATH}")
   endif()
   include(${SWIG_USE_FILE})
+
   # set_source_files_properties(swig/osrm.i PROPERTIES CPLUSPLUS ON COMPILE_OPTIONS -includeall)
   set_source_files_properties(swig/osrm.i PROPERTIES CPLUSPLUS ON)
 
@@ -213,14 +213,14 @@ if (ENABLE_SWIG_JNI_BINDINGS OR ENABLE_SWIG_PYTHON_BINDINGS)
             SOURCES ${SwigSourcesGlob}
     )
     set_target_properties (
-            _pyosrm PROPERTIES
+            pyosrm PROPERTIES
             SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE
-            OUTPUT_NAME _osrm
+            OUTPUT_NAME libosrm
             LIBRARY_OUTPUT_DIRECTORY ${SWIG_PYTHON_OUTPUT_DIR}
             ARCHIVE_OUTPUT_DIRECTORY ${SWIG_PYTHON_OUTPUT_DIR}
             RUNTIME_OUTPUT_DIRECTORY ${SWIG_PYTHON_OUTPUT_DIR}
     )
-    target_link_libraries(_pyosrm PRIVATE osrm ${PYTHON_LIBRARY})
+    target_link_libraries(pyosrm PRIVATE osrm ${PYTHON_LIBRARY})
   endif()
   if (ENABLE_SWIG_JNI_BINDINGS)
     set(SWIG_JNI_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/swig/java")
@@ -606,6 +606,7 @@ if(ENABLE_MASON)
 else()
 
   find_package(Boost 1.54 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+
   add_dependency_includes(${Boost_INCLUDE_DIRS})
   if(WIN32 AND Boost_VERSION VERSION_LESS 106200)
     message(FATAL_ERROR "Building with MSVC needs Boost 1.62 with CXX11_CONSTEXPR support")
@@ -861,7 +862,7 @@ if (ENABLE_SWIG_JNI_BINDINGS)
   install(TARGETS SWIG_JNI DESTINATION lib)
 endif()
 if (ENABLE_SWIG_PYTHON_BINDINGS)
-  install(TARGETS _pyosrm DESTINATION lib)
+  install(TARGETS pyosrm DESTINATION lib)
 endif()
 
 # Install profiles and support library to /usr/local/share/osrm/profiles by default
