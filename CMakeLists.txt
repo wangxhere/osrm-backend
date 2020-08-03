@@ -20,17 +20,19 @@ endif()
 
 option(ENABLE_MASON "Use mason for dependencies" OFF)
 option(ENABLE_CCACHE "Speed up incremental rebuilds via ccache" ON)
-option(BUILD_TOOLS "Build OSRM tools" OFF)
-option(BUILD_PACKAGE "Build OSRM package" OFF)
+option(BUILD_TOOLS "Build OSRM tools" ON)
+option(BUILD_PACKAGE "Build OSRM package" ON)
 option(ENABLE_ASSERTIONS "Use assertions in release mode" OFF)
 option(ENABLE_COVERAGE "Build with coverage instrumentalisation" OFF)
 option(ENABLE_SANITIZER "Use memory sanitizer for Debug build" OFF)
-option(ENABLE_STXXL "Use STXXL library" OFF)
+option(ENABLE_STXXL "Use STXXL library" ON)
 option(ENABLE_LTO "Use LTO if available" OFF)
 option(ENABLE_FUZZING "Fuzz testing using LLVM's libFuzzer" OFF)
 option(ENABLE_GOLD_LINKER "Use GNU gold linker if available" ON)
 option(ENABLE_NODE_BINDINGS "Build NodeJs bindings" OFF)
 option(ENABLE_GLIBC_WORKAROUND "Workaround GLIBC symbol exports" OFF)
+option(ENABLE_SWIG_PYTHON_BINDINGS "Use SWIG to compile Python bindings" ON)
+option(ENABLE_SWIG_JNI_BINDINGS "Use SWIG to compile Java bindings" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -129,7 +131,6 @@ include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}/include/)
 include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/include/)
 include_directories(SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sol2/)
 include_directories(SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/third_party/variant/include)
-
 set(BOOST_COMPONENTS date_time chrono filesystem iostreams program_options regex system thread unit_test_framework)
 
 configure_file(
@@ -158,6 +159,94 @@ add_library(UPDATER OBJECT ${UpdaterGlob})
 add_library(STORAGE OBJECT ${StorageGlob})
 add_library(ENGINE OBJECT ${EngineGlob})
 add_library(SERVER OBJECT ${ServerGlob})
+
+# SWIG: use standard target name.
+if(POLICY CMP0078)
+  cmake_policy(SET CMP0078 NEW)
+endif()
+
+# SWIG: use SWIG_MODULE_NAME property.
+if(POLICY CMP0086)
+  cmake_policy(SET CMP0086 NEW)
+endif()
+
+if (ENABLE_SWIG_JNI_BINDINGS OR ENABLE_SWIG_PYTHON_BINDINGS)
+  find_package(SWIG 3.0 REQUIRED)
+  message(STATUS "Using SWIG ${SWIG_VERSION} to generate Java and / or Python bindings")
+  if (ENABLE_SWIG_JNI_BINDINGS)
+    find_package(Java 1.8 COMPONENTS Development)
+    set(JAVA_AWT_LIBRARY NotNeeded)
+    set(JAVA_AWT_INCLUDE_PATH NotNeeded)
+    find_package(JNI 1.8 REQUIRED)
+    include_directories(SYSTEM "${JAVA_INCLUDE_PATH}")
+    include_directories(SYSTEM "${JAVA_INCLUDE_PATH2}")
+  endif()
+  if (ENABLE_SWIG_PYTHON_BINDINGS)
+    find_package(PythonInterp 3 REQUIRED)
+    find_package(PythonLibs 3 REQUIRED)
+    include_directories(SYSTEM "${PYTHON_INCLUDE_PATH}")
+  endif()
+  include(${SWIG_USE_FILE})
+
+  # set_source_files_properties(swig/osrm.i PROPERTIES CPLUSPLUS ON COMPILE_OPTIONS -includeall)
+  set_source_files_properties(swig/osrm.i PROPERTIES CPLUSPLUS ON)
+
+  # Use the newer target name preference
+  set(UseSWIG_TARGET_NAME_PREFERENCE "STANDARD")
+
+  file(GLOB SwigSourcesGlob swig/osrm.i swig/*.cpp swig/**/*.cpp)
+
+  include_directories(BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/swig/")
+
+  set(UseSWIG_MODULE_VERSION 2)
+
+  if (ENABLE_SWIG_PYTHON_BINDINGS)
+    set(SWIG_PYTHON_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/swig/python")
+    message(STATUS "Swig Python output dir: ${SWIG_PYTHON_OUTPUT_DIR}")
+    set(CMAKE_SWIG_OUTDIR ${SWIG_PYTHON_OUTPUT_DIR})
+    swig_add_library(
+            pyosrm
+            TYPE MODULE
+            LANGUAGE python
+            OUTPUT_DIR ${SWIG_PYTHON_OUTPUT_DIR}
+            OUTFILE_DIR ${SWIG_PYTHON_OUTPUT_DIR}
+            SOURCES ${SwigSourcesGlob}
+    )
+    set_target_properties (
+            pyosrm PROPERTIES
+            SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE
+            OUTPUT_NAME libosrm
+            LIBRARY_OUTPUT_DIRECTORY ${SWIG_PYTHON_OUTPUT_DIR}
+            ARCHIVE_OUTPUT_DIRECTORY ${SWIG_PYTHON_OUTPUT_DIR}
+            RUNTIME_OUTPUT_DIRECTORY ${SWIG_PYTHON_OUTPUT_DIR}
+    )
+    target_link_libraries(pyosrm PRIVATE osrm ${PYTHON_LIBRARY})
+  endif()
+  if (ENABLE_SWIG_JNI_BINDINGS)
+    set(SWIG_JNI_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/swig/java")
+    set(CMAKE_SWIG_FLAGS -package "osrm.jni")
+    set(CMAKE_SWIG_OUTDIR ${SWIG_JNI_OUTPUT_DIR})
+    message(STATUS "Swig JNI output dir: ${SWIG_JNI_OUTPUT_DIR}")
+    swig_add_library(
+            SWIG_JNI
+            TYPE SHARED
+            LANGUAGE java
+            OUTPUT_DIR ${SWIG_JNI_OUTPUT_DIR}
+            OUTFILE_DIR ${SWIG_JNI_OUTPUT_DIR}
+            SOURCES ${SwigSourcesGlob}
+    )
+    set_target_properties (
+            SWIG_JNI PROPERTIES
+            SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE
+            OUTPUT_NAME swig_jni_bindings
+            LIBRARY_OUTPUT_DIRECTORY ${SWIG_JNI_OUTPUT_DIR}
+            ARCHIVE_OUTPUT_DIRECTORY ${SWIG_JNI_OUTPUT_DIR}
+            RUNTIME_OUTPUT_DIRECTORY ${SWIG_JNI_OUTPUT_DIR}
+    )
+    target_link_libraries(SWIG_JNI PRIVATE osrm ${JAVA_JVM_LIBRARY})
+    #TODO compile the Java file generate and install
+  endif()
+endif()
 
 set_target_properties(UTIL PROPERTIES LINKER_LANGUAGE CXX)
 
@@ -517,6 +606,7 @@ if(ENABLE_MASON)
 else()
 
   find_package(Boost 1.54 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+
   add_dependency_includes(${Boost_INCLUDE_DIRS})
   if(WIN32 AND Boost_VERSION VERSION_LESS 106200)
     message(FATAL_ERROR "Building with MSVC needs Boost 1.62 with CXX11_CONSTEXPR support")
@@ -768,7 +858,12 @@ install(TARGETS osrm_customize DESTINATION lib)
 install(TARGETS osrm_update DESTINATION lib)
 install(TARGETS osrm_contract DESTINATION lib)
 install(TARGETS osrm_store DESTINATION lib)
-
+if (ENABLE_SWIG_JNI_BINDINGS)
+  install(TARGETS SWIG_JNI DESTINATION lib)
+endif()
+if (ENABLE_SWIG_PYTHON_BINDINGS)
+  install(TARGETS pyosrm DESTINATION lib)
+endif()
 
 # Install profiles and support library to /usr/local/share/osrm/profiles by default
 set(DefaultProfilesDir profiles)
